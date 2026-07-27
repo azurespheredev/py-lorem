@@ -5,45 +5,54 @@ steps:
       python -B -c 'import loremipsum; print(loremipsum.sentence(max_char=20))' > result.txt
       echo "Generated sentence:"
       cat result.txt
-
-      buildkite-agent annotate \
-        --style "info" \
-        --context "sentence-result" < result.txt
+    artifact_paths:
+      - "result.txt"
     plugins:
       - docker#v5.14.0:
           image: "python:3.13"
           propagate-uid-gid: true
+          mount-buildkite-agent: false
+
+  - label: ":memo: Annotate sentence"
+    key: "sentence-annotation"
+    depends_on: "sentence"
+    command: |
+      buildkite-agent artifact download "result.txt" .
+
+      echo "Creating sentence annotation:"
+      cat result.txt
+
+      buildkite-agent annotate \
+        --style "info" \
+        --context "sentence-result" < result.txt
 
   - label: ":snake: Generate paragraph"
     key: "paragraph"
-    depends_on: "sentence"
+    depends_on: "sentence-annotation"
     command: |
       python -B -c 'import loremipsum; print(loremipsum.paragraph(max_char=100))' > result2.txt
       echo "Generated paragraph:"
       cat result2.txt
-
-      buildkite-agent annotate \
-        --style "success" \
-        --context "paragraph-result" < result2.txt
     artifact_paths:
       - "result2.txt"
     plugins:
       - docker#v5.14.0:
           image: "python:3.13"
           propagate-uid-gid: true
+          mount-buildkite-agent: false
 
-  - label: ":arrow_down: Download paragraph artifact"
+  - label: ":arrow_down: Download and annotate paragraph"
     key: "download-result2"
     depends_on: "paragraph"
     command: |
       buildkite-agent artifact download "result2.txt" .
 
-      echo "Downloaded artifact contents:"
+      echo "Downloaded result2.txt:"
       cat result2.txt
 
       buildkite-agent annotate \
-        --style "info" \
-        --context "downloaded-artifact" < result2.txt
+        --style "success" \
+        --context "paragraph-result" < result2.txt
 
   - label: ":docker: Build and push Docker image"
     key: "push-image"
@@ -64,7 +73,7 @@ steps:
       echo "Building $$IMAGE"
       docker build --tag "$$IMAGE" .
 
-      echo "Testing the image"
+      echo "Testing $$IMAGE"
       docker run --rm "$$IMAGE"
 
       echo "Pushing $$IMAGE"
