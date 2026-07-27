@@ -1,34 +1,58 @@
-agents:
-  queue: "local"
-
 steps:
   - label: ":snake: Generate sentence"
     key: "sentence"
-    command: >-
-      python -c 'import loremipsum; print(loremipsum.sentence(max_char=20))' > result.txt &&
-      cat result.txt &&
-      buildkite-agent annotate
-      --style "info"
-      --context "sentence-result"
-      < result.txt
+    command: |
+      python -c 'import loremipsum; print(loremipsum.sentence(max_char=20))' > result.txt
+      cat result.txt
+      buildkite-agent annotate \
+        --style "info" \
+        --context "sentence-result" < result.txt
     plugins:
       - docker#v5.14.0:
           image: "python:3.13"
-          mount-buildkite-agent: true
-          chown: true
 
-  - label: ":memo: Generate paragraph"
+  - label: ":snake: Generate paragraph"
     key: "paragraph"
     depends_on: "sentence"
-    command: >-
-      python -c 'import loremipsum; print(loremipsum.paragraph(max_char=100))' > result2.txt &&
-      cat result2.txt &&
-      buildkite-agent annotate
-      --style "success"
-      --context "paragraph-result"
-      < result2.txt
+    command: |
+      python -c 'import loremipsum; print(loremipsum.paragraph(max_char=100))' > result2.txt
+      cat result2.txt
+      buildkite-agent annotate \
+        --style "success" \
+        --context "paragraph-result" < result2.txt
+    artifact_paths:
+      - "result2.txt"
     plugins:
       - docker#v5.14.0:
           image: "python:3.13"
-          mount-buildkite-agent: true
-          chown: true
+
+  - label: ":arrow_down: Download paragraph artifact"
+    key: "download-result2"
+    depends_on: "paragraph"
+    command: |
+      buildkite-agent artifact download "result2.txt" . --step "paragraph"
+      echo "Downloaded result2.txt:"
+      cat result2.txt
+
+  - label: ":docker: Build and push image"
+    key: "push-image"
+    depends_on: "download-result2"
+    command: |
+      REGISTRY="packages.buildkite.com/azuresphere/py-lorem-images"
+      IMAGE="$$REGISTRY/py-lorem:build-$$BUILDKITE_BUILD_NUMBER"
+
+      buildkite-agent oidc request-token \
+        --audience "https://$$REGISTRY" \
+        --lifetime 300 |
+        docker login "$$REGISTRY" \
+          --username buildkite \
+          --password-stdin
+
+      docker build --tag "$$IMAGE" .
+      docker push "$$IMAGE"
+
+      echo "Successfully pushed $$IMAGE"
+      printf 'Successfully pushed `%s`\n' "$$IMAGE" |
+        buildkite-agent annotate \
+          --style "success" \
+          --context "package-image"
